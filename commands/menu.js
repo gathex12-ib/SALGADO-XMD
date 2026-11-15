@@ -45,7 +45,7 @@ async function menuCommand(sock, chatId, message) {
 ║╰─────────────◆
 ╚══════════════════❒
 ║ ⬡ ➤ menu → Affiche ce menu
-║ ⬡ ➤ allmenu → Toutes les commandes
+║ ⬡ ➤ allmenu → les commandes
 ║ ⬡ ➤ help <cmd> → Aide détaillée
 ║ ⬡ ➤ ping → Vitesse du bot
 ║ ⬡ ➤ info → Infos sur le bot
@@ -68,8 +68,8 @@ async function menuCommand(sock, chatId, message) {
 ║ ⬡ ➤ toimg → Sticker → image
 ║ ⬡ ➤ song <nom> → Musique
 ║ ⬡ ➤ image <mots> → Images Pinterest
-║ ⬡ ➤ save → Sauvegarde un média
-║ ⬡ ➤ waouh / humm → Vue unique
+║ ⬡ ➤ save → média plus 
+║ ⬡ ➤ waouh / humm → Vue magie 
 ║ ⬡ ➤ status → Statuts WhatsApp
 ║ ⬡ ➤ gpt <question> → IA
 ╚══════════════════════🥷`;
