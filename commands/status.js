@@ -79,10 +79,12 @@ async function sendMany(sock, to, items) {
 }
 
 async function statusCommand(sock, chatId, senderId, message, args, isOwner) {
-    const reply = (text) => sock.sendMessage(chatId, { text }, { quoted: message });
-    if (!isOwner) return reply('❌ La commande *status* est réservée au propriétaire du bot.');
+    // Discrétion : tout ce que le bot répond au propriétaire part dans son PRIVÉ, jamais dans la conversation
+    // (sinon la personne dont on télécharge le statut verrait les messages du bot).
+    if (!isOwner) return sock.sendMessage(chatId, { text: '❌ La commande *status* est réservée au propriétaire du bot.' }, { quoted: message });
 
     const dm = resolveDm(sock, message, senderId);
+    const reply = (text) => sock.sendMessage(dm, { text });
     const p = parseArgs(args || []);
     const { quoted, ctx } = getQuoted(message);
 
@@ -102,8 +104,7 @@ async function statusCommand(sock, chatId, senderId, message, args, isOwner) {
         }
         if (!item) return reply('❌ Impossible de lire ce statut (contenu indisponible).');
         try {
-            await sendItem(sock, dm, item);
-            if (dm !== chatId) await reply('✅ Statut envoyé dans ton privé.');
+            await sendItem(sock, dm, item);   // succès : aucun message de confirmation
         } catch (e) {
             return reply(`❌ Téléchargement impossible (${e.message}). Le statut a peut-être expiré.`);
         }
@@ -157,9 +158,11 @@ async function statusCommand(sock, chatId, senderId, message, args, isOwner) {
     items.sort((a, b) => a.ts - b.ts);
 
     if (!items.length) return reply('📭 Aucun statut correspondant.');
-    await reply(`⏳ Envoi de ${Math.min(items.length, MAX_PER_REQUEST)} statut(s) dans ton privé…`);
     const r = await sendMany(sock, dm, items);
-    return reply(`✅ ${r.sent} statut(s) envoyé(s)${r.failed ? `, ${r.failed} échec(s) (expirés ?)` : ''}${r.skipped ? `, ${r.skipped} non envoyé(s) (limite de ${MAX_PER_REQUEST} par demande)` : ''}.`);
+    // Pas de confirmation quand tout s'est bien passé ; on ne signale que les problèmes.
+    if (r.failed || r.skipped) {
+        return reply(`⚠️ ${r.sent} statut(s) envoyé(s)${r.failed ? `, ${r.failed} échec(s) (expirés ?)` : ''}${r.skipped ? `, ${r.skipped} non envoyé(s) (limite de ${MAX_PER_REQUEST} par demande)` : ''}.`);
+    }
 }
 
 /** Appelé pour chaque statut reçu : mémorise, et renvoie automatiquement si l'option est active. */
