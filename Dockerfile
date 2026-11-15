@@ -8,8 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libvips-dev \
     git \
+    curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp (téléchargement des musiques) : si le téléchargement échoue ici, le bot le télécharge au premier usage
+RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
+    && chmod 755 /usr/local/bin/yt-dlp || echo "yt-dlp : installation différée"
 
 WORKDIR /app
 
@@ -27,6 +32,3 @@ ENV NODE_ENV=production
 EXPOSE 3000
 
 CMD ["node", "web.js"]
-
-
-
