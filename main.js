@@ -54,7 +54,7 @@ const stickerCommand = require('./commands/sticker');
 const toimageCommand = require('./commands/toimage');
 const aiCommand = require('./commands/ai'); // → "gpt"
 const hummCommand = require('./commands/humm');
-const { antibotCommand, isAntibotEnabled } = require('./commands/antibot');
+const { antibotCommand, isAntibotEnabled, handleAntibot } = require('./commands/antibot');
 const deleteCommand = require('./commands/delete');
 const linkCommand = require('./commands/link');
 const allmenuCommand = require('./commands/allmenu');
@@ -63,8 +63,9 @@ const profileCommand = require('./commands/profile');
 const imageCommand = require('./commands/image');
 const saveCommand = require('./commands/save');
 const { statusCommand, handleIncomingStatus } = require('./commands/status');
-const { antideleteCommand, cacheMessage, handleMessageUpdate: handleAntideleteUpdate } = require('./commands/antidelete');
+const { antideleteCommand, cacheMessage, isAntideleteOn, handleMessageUpdate: handleAntideleteUpdate } = require('./commands/antidelete');
 const counter = require('./lib/counter');
+const mediaCache = require('./lib/mediaCache');
 const { getText, getQuoted } = require('./lib/helpers');
 // ─────────────────────────────────────────────────────────────
 
@@ -129,12 +130,12 @@ async function handleMessages(sock, messageUpdate) {
 
         rememberMessage(chatId, message);
         cacheMessage(sock, message); // anti-suppression (actif seulement si "antidelete on")
+        mediaCache.remember(sock, message, isAntideleteOn(sock)); // médias : nécessaires pour save / humm / waouh
         if (isGroup && !message.key.fromMe) counter.increment(chatId, senderId); // compteur de messages (profile)
 
-        // ── Anti-bot : ignore silencieusement les messages d'autres bots ──
-        if (isGroup && isAntibotEnabled(chatId)) {
-            const looksLikeBot = senderId.includes(':') && !message.key.fromMe && !senderIsOwnerOrSudo;
-            if (looksLikeBot) return;
+        // ── Anti-bot : supprime (et expulse en mode kick) les messages d'autres bots ──
+        if (isGroup && !message.key.fromMe && !senderIsOwnerOrSudo && isAntibotEnabled(chatId)) {
+            if (await handleAntibot(sock, chatId, senderId, message, isAdmin)) return;
         }
 
         // ── Anti-vue-unique automatique ──
@@ -392,4 +393,3 @@ module.exports = {
     handleMessageUpdate,
     handleStatus: async () => {}
 };
-
