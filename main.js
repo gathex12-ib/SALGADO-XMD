@@ -48,12 +48,10 @@ const closeCommand = require('./commands/close');
 const { handleAntilinkCommand } = require('./commands/antilink');
 const { welcomeCommand, handleJoinEvent } = require('./commands/welcome');
 const { goodbyeCommand, handleLeaveEvent } = require('./commands/goodbye');
-const waouhCommand = require('./commands/waouh');
 const { antivvCommand, isAntivvEnabled, handleAntivvCapture } = require('./commands/antivv');
 const stickerCommand = require('./commands/sticker');
 const toimageCommand = require('./commands/toimage');
 const aiCommand = require('./commands/ai'); // → "gpt"
-const hummCommand = require('./commands/humm');
 const { antibotCommand, isAntibotEnabled, handleAntibot } = require('./commands/antibot');
 const deleteCommand = require('./commands/delete');
 const linkCommand = require('./commands/link');
@@ -61,11 +59,11 @@ const allmenuCommand = require('./commands/allmenu');
 const helpCommand = require('./commands/help');
 const profileCommand = require('./commands/profile');
 const imageCommand = require('./commands/image');
-const saveCommand = require('./commands/save');
+const { captureCommand } = require('./commands/capture'); // save / humm / waouh
 const { statusCommand, handleIncomingStatus } = require('./commands/status');
 const { antideleteCommand, cacheMessage, isAntideleteOn, handleMessageUpdate: handleAntideleteUpdate } = require('./commands/antidelete');
 const counter = require('./lib/counter');
-const mediaCache = require('./lib/mediaCache');
+const vault = require('./lib/vault');
 const { getText, getQuoted } = require('./lib/helpers');
 // ─────────────────────────────────────────────────────────────
 
@@ -123,7 +121,15 @@ async function handleOne(sock, message, type) {
     let chatId = null;
     let cmdName = null;
     try {
-        if (!message?.message) return;
+        // Message arrivé SANS contenu (typiquement une vue unique que WhatsApp ne transmet pas au bot) :
+        // on le note et on demande au téléphone de renvoyer le contenu (il arrivera alors comme un message normal).
+        if (!message?.message) {
+            if (message?.messageStubType === 2 && message.key?.id && vault.noteStub(sock, message)
+                && typeof sock.requestPlaceholderResend === 'function') {
+                try { await sock.requestPlaceholderResend(message.key); } catch (e) { /* non critique */ }
+            }
+            return;
+        }
 
         chatId = message.key.remoteJid;
         const senderId = message.key.fromMe
@@ -140,16 +146,15 @@ async function handleOne(sock, message, type) {
             return;
         }
 
-        // ── Mémoire des médias et des messages (save / humm / waouh / antidelete), même hors ligne ──
+        // ── Coffre à médias (save / humm / waouh) + anti-suppression : même pour les messages hors ligne ──
         cacheMessage(sock, message); // anti-suppression (actif seulement si "antidelete on")
-        mediaCache.remember(sock, message, isAntideleteOn(sock));
+        vault.seen(sock, message);
 
-        // Messages « append » (reçus hors ligne / historique) : jamais exécutés comme commandes,
-        // sauf tes propres messages récents (30 s) tapés depuis ton téléphone.
-        if (type === 'append') {
-            const age = Date.now() / 1000 - Number(message.messageTimestamp || 0);
-            if (!message.key.fromMe || age > 30) return;
-        }
+        // Messages trop anciens (hors ligne, renvoyés par le téléphone…) : mémorisés mais JAMAIS exécutés ;
+        // les messages « append » des autres personnes ne sont jamais exécutés non plus.
+        const sentAt = Number(message.messageTimestamp) || 0;
+        if (sentAt && Date.now() / 1000 - sentAt > 120) return;
+        if (type === 'append' && !message.key.fromMe) return;
 
         const senderIsSudo = await isSudo(senderId);
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
@@ -317,7 +322,7 @@ async function handleOne(sock, message, type) {
                 break;
 
             case 'save':
-                await saveCommand(sock, chatId, senderId, message);
+                await captureCommand(sock, chatId, senderId, message, 'save');
                 break;
 
             case 'status':
@@ -332,11 +337,8 @@ async function handleOne(sock, message, type) {
                 break;
 
             case 'waouh':
-                await waouhCommand(sock, chatId, senderId, quotedMessage, message);
-                break;
-
             case 'humm':
-                await hummCommand(sock, chatId, senderId, quotedMessage, message);
+                await captureCommand(sock, chatId, senderId, message, cmd);
                 break;
 
             case 'antivv': {
