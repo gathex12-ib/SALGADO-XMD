@@ -100,13 +100,29 @@ function rememberMessage(chatId, message) {
     } catch (e) { /* non critique */ }
 }
 
-async function handleMessages(sock, messageUpdate) {
-    let chatId = null;
-    try {
-        const { messages, type } = messageUpdate;
-        if (type !== 'notify') return;
+// Commandes reconnues : l'erreur « Une erreur est survenue » n'est envoyée que pour elles
+// (jamais pour un message ordinaire d'un autre membre ou d'un autre bot).
+const KNOWN_COMMANDS = new Set([
+    'menu', 'bot', 'allmenu', 'help', 'aide', 'ping', 'info', 'owner', 'tagall', 'kickall', 'kick',
+    'song', 'play', 'mp3', 'ytmp3', 'pair', 'mode', 'open', 'close', 'antilink', 'link', 'welcome', 'goodbye',
+    'profile', 'profil', 'image', 'img', 'pinterest', 'save', 'status', 'statut', 'statuts', 'dlstatus',
+    'antidelete', 'waouh', 'humm', 'antivv', 'sticker', 's', 'toimg', 'toimage', 'gpt', 'ai', 'antibot', 'delete', 'del'
+]);
 
-        const message = messages[0];
+// WhatsApp livre parfois plusieurs messages d'un coup, et les messages reçus pendant que le bot était
+// hors ligne arrivent avec le type « append » : on les traite tous (comme CENTRAL-HEX).
+async function handleMessages(sock, messageUpdate) {
+    const { messages, type } = messageUpdate;
+    if (type !== 'notify' && type !== 'append') return;
+    for (const message of messages || []) {
+        await handleOne(sock, message, type);
+    }
+}
+
+async function handleOne(sock, message, type) {
+    let chatId = null;
+    let cmdName = null;
+    try {
         if (!message?.message) return;
 
         chatId = message.key.remoteJid;
@@ -124,16 +140,25 @@ async function handleMessages(sock, messageUpdate) {
             return;
         }
 
+        // ── Mémoire des médias et des messages (save / humm / waouh / antidelete), même hors ligne ──
+        cacheMessage(sock, message); // anti-suppression (actif seulement si "antidelete on")
+        mediaCache.remember(sock, message, isAntideleteOn(sock));
+
+        // Messages « append » (reçus hors ligne / historique) : jamais exécutés comme commandes,
+        // sauf tes propres messages récents (30 s) tapés depuis ton téléphone.
+        if (type === 'append') {
+            const age = Date.now() / 1000 - Number(message.messageTimestamp || 0);
+            if (!message.key.fromMe || age > 30) return;
+        }
+
         const senderIsSudo = await isSudo(senderId);
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
         const isOwnerMsg = message.key.fromMe || senderIsOwnerOrSudo;
 
         rememberMessage(chatId, message);
-        cacheMessage(sock, message); // anti-suppression (actif seulement si "antidelete on")
-        mediaCache.remember(sock, message, isAntideleteOn(sock)); // médias : nécessaires pour save / humm / waouh
         if (isGroup && !message.key.fromMe) counter.increment(chatId, senderId); // compteur de messages (profile)
 
-        // ── Anti-bot : supprime (et expulse en mode kick) les messages d'autres bots ──
+        // ── Anti-bot : supprime, annonce et expulse les autres bots ──
         if (isGroup && !message.key.fromMe && !senderIsOwnerOrSudo && isAntibotEnabled(chatId)) {
             if (await handleAntibot(sock, chatId, senderId, message, isAdmin)) return;
         }
@@ -158,6 +183,7 @@ async function handleMessages(sock, messageUpdate) {
         const cmd = parts[0].toLowerCase().replace(/^[.!\/#]+/, '');
         const args = parts.slice(1);
         const argText = args.join(' ');
+        cmdName = cmd;
 
         const { quoted: quotedMessage, ctx: contextInfo } = getQuoted(message);
         const mentionedJids = contextInfo.mentionedJid || [];
@@ -341,7 +367,7 @@ async function handleMessages(sock, messageUpdate) {
                     await sock.sendMessage(chatId, { text: '❌ Réservé aux admins du groupe.' }, { quoted: message });
                     return;
                 }
-                await antibotCommand(sock, chatId, message, args, adminStatus.isSenderAdmin || isOwnerMsg);
+                await antibotCommand(sock, chatId, message, args, adminStatus.isSenderAdmin || isOwnerMsg, adminStatus.isBotAdmin);
                 break;
             }
 
@@ -356,8 +382,8 @@ async function handleMessages(sock, messageUpdate) {
                 return;
         }
     } catch (error) {
-        console.error('❌ Erreur dans le gestionnaire de messages:', error.message);
-        if (chatId) {
+        console.error('❌ Erreur dans le gestionnaire de messages:', error.stack || error.message);
+        if (chatId && cmdName && KNOWN_COMMANDS.has(cmdName)) {
             try {
                 await sock.sendMessage(chatId, { text: '❌ Une erreur est survenue lors du traitement de la commande.' });
             } catch (e2) { /* ignore */ }
