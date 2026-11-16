@@ -8,7 +8,7 @@ const {
     resolveDm, ownJid, botKey, jidNum, digits, KIND_LABEL
 } = require('../lib/helpers');
 
-const mediaCache = require('../lib/mediaCache');
+const vault = require('../lib/vault');
 const FILE = path.join(__dirname, '../data/antidelete.json');
 const CACHE_MAX = 3000;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // on garde les messages 6 h en mémoire
@@ -123,7 +123,7 @@ async function report(sock, chat, entry, u) {
 
     if (media) {
         try {
-            const buf = mediaCache.bufferOf(sock, orig.key.id) || await downloadMedia(media);
+            const buf = (await vault.bufferFor(sock, orig.key.id)) || await downloadMedia(media);
             const body = `${head}${media.caption ? `\n\n💬 ${media.caption}` : ''}`;
             const payload = buildMediaPayload(media, buf, body);
             if (media.kind === 'sticker' || media.kind === 'audio') {
